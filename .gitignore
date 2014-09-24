@@ -1,0 +1,9 @@
+*~
+*.ncb
+*.suo
+*.vcproj.*.user
+*.sdf
+*.opensdf
+*.vcxproj.user
+vc12/Debug/
+vc12/Release/
