@@ -428,7 +428,7 @@ public:
 	}
 };
 static CheckingMethodFactory::Reg<CheckingMethod1> reg1_0("1");
-static CheckingMethodFactory::Reg<CheckingMethod1> reg1_1("summary");
+static CheckingMethodFactory::Reg<CheckingMethod1> reg1_1("dirsummary");
 
 
 /**
@@ -553,7 +553,7 @@ public:
 	}
 };
 static CheckingMethodFactory::Reg<CheckingMethod2> reg2_0("2");
-static CheckingMethodFactory::Reg<CheckingMethod2> reg2_1("stat");
+static CheckingMethodFactory::Reg<CheckingMethod2> reg2_1("filestat");
 static CheckingMethodFactory::Reg<CheckingMethod2> reg2_2(""); //default
 
 }//namespace detfc
