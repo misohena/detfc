@@ -26,6 +26,10 @@ public:
 	std::vector<PathString> targets_;
 	bool includesDirectoryInTarget_;
 	bool includesSubEntriesInTarget_;
+	bool writeDBBeforeCommand_;
+	bool ignoreFailureCommand_;
+	bool suppressWriteDB_;
+	bool verbose_;
 	PathString dbFile_;
 	PathString commandChanged_;
 	std::string checkingMethod_;
@@ -34,12 +38,20 @@ public:
 	CommandLine()
 		: includesDirectoryInTarget_(false)
 		, includesSubEntriesInTarget_(false)
+		, writeDBBeforeCommand_(false)
+		, ignoreFailureCommand_(false)
+		, suppressWriteDB_(false)
+		, verbose_(false)
 		, checkingMethod_()
 	{}
 
 	const std::vector<PathString> &getTargets() const { return targets_;}
 	bool optIncludesDirectoryInTarget() const { return includesDirectoryInTarget_;}
 	bool optIncludesSubEntriesInTarget() const { return includesSubEntriesInTarget_;}
+	bool optWriteDBBeforeCommand() const { return writeDBBeforeCommand_ && !suppressWriteDB_;}
+	bool optWriteDBAfterCommand() const { return !writeDBBeforeCommand_ && !suppressWriteDB_;}
+	bool optIgnoreFailureCommand() const { return ignoreFailureCommand_;}
+	bool optVerbose() const { return verbose_;}
 	PathString getDBFile() const { return dbFile_;}
 	PathString getCommandChanged() const { return commandChanged_;}
 	const std::string &getCheckingMethod() const { return checkingMethod_;}
@@ -79,6 +91,18 @@ public:
 				}
 				else if (arg == "-d"){
 					includesDirectoryInTarget_ = true;
+				}
+				else if (arg == "-b"){
+					writeDBBeforeCommand_ = true;
+				}
+				else if (arg == "-i"){
+					ignoreFailureCommand_ = true;
+				}
+				else if (arg == "-nw"){
+					suppressWriteDB_ = true;
+				}
+				else if (arg == "-v"){
+					verbose_ = true;
 				}
 				else if (arg == "-db"){
 					if(++argIt == argEnd){
@@ -240,7 +264,15 @@ private:
 	}
 	bool checkTargetEntry(const DirectoryEntry &entry)
 	{
-		return entry.getLastWriteTime() > getDBModifiedTime();
+		if (entry.getLastWriteTime() > getDBModifiedTime()){
+			if (cmdline_.optVerbose()){
+				std::cout << "change: " << entry.getPath() << std::endl;
+			}
+			return true;
+		}
+		else{
+			return false;
+		}
 	}
 
 public:
@@ -317,9 +349,17 @@ public:
 		}
 		if(topLevel_ != topLevelPrev_){
 			setChanged();
+			if (cmdline_.optVerbose()){
+				std::cout << "change: top level target" << std::endl;
+			}
 		}
 		if (!dirsPrev_.empty()){ // found deleted directory
 			setChanged();
+			if (cmdline_.optVerbose()){
+				for (auto dir : dirsPrev_){
+					std::cout << "change(delete directory): " << dir.first << std::endl;
+				}
+			}
 		}
 		return getChanged();
 	}
@@ -356,10 +396,16 @@ private:
 		if (it == dirsPrev_.end()){
 			// new directory
 			setChanged();
+			if (cmdline_.optVerbose()){
+				std::cout << "change(add directory):" << dir << std::endl;
+			}
 		}
 		else{
-			if(it->second != dirSummary){
+			if (it->second != dirSummary){
 				setChanged();
+				if (cmdline_.optVerbose()){
+					std::cout << "change(change directory): " << dir << std::endl;
+				}
 			}
 			dirsPrev_.erase(it);
 		}
@@ -451,6 +497,11 @@ public:
 
 		if(!targetsPrev_.empty()){ //found deleted files
 			setChanged();
+			if (cmdline_.optVerbose()){
+				for (auto deletedTarget : targetsPrev_){
+					std::cout << "change(delete): " << deletedTarget.first << std::endl;
+				}
+			}
 		}
 		return getChanged();
 	}
@@ -484,6 +535,9 @@ private:
 		if(it == targetsPrev_.end()){
 			// new file
 			setChanged();
+			if (cmdline_.optVerbose()){
+				std::cout << "change(add): " << entry.getPath() << std::endl;
+			}
 		}
 		else{
 			if(entry.getFileType() != it->second.getFileType()
@@ -491,6 +545,9 @@ private:
 			|| entry.getFileSize() != it->second.getFileSize()){
 				// changed
 				setChanged();
+				if (cmdline_.optVerbose()){
+					std::cout << "change: " << entry.getPath() << std::endl;
+				}
 			}
 			else{
 				// may be not changed
@@ -566,24 +623,38 @@ int main(int argc, char *argv[])
 
 	CommandLine cmdline;
 	if(!cmdline.parse(argc, argv)){
-		return -1;
+		return EXIT_FAILURE; // command line error
 	}
 
 	CheckingMethodFactory::MethodFactoryFun creator = CheckingMethodFactory::getMethod(cmdline.getCheckingMethod());
 	if(!creator){
 		std::cerr << "Unknown checking method name '" << cmdline.getCheckingMethod() << "' specified." << std::endl;
-		return -1;
+		return EXIT_FAILURE; // method name error
 	}
 	const std::unique_ptr<CheckingMethod> checker(creator(cmdline));
 	checker->readDB();
 
 	if(checker->check()){
-		checker->writeDB();
+		if (cmdline.optWriteDBBeforeCommand()){
+			checker->writeDB();
+		}
 
-		if(!cmdline.getCommandChanged().empty()){
-			std::system(cmdline.getCommandChanged().c_str());
+		if (!cmdline.getCommandChanged().empty()){
+#if defined(WIN32)
+			const int ret = std::system(cmdline.getCommandChanged().c_str());
+#else
+			const int result = std::system(cmdline.getCommandChanged().c_str());
+			const int ret = WIFEXITED(result) ? WEXITSTATUS(result) : -1;
+#endif
+			if (ret != 0 && !cmdline.optIgnoreFailureCommand()){
+				return EXIT_FAILURE; // command failure
+			}
+		}
+
+		if (cmdline.optWriteDBAfterCommand()){
+			checker->writeDB();
 		}
 	}
-	return 0;
+	return EXIT_SUCCESS;
 }
 
